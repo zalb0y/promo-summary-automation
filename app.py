@@ -1,7 +1,7 @@
 """
 🚀 OTOMASI SUMMARY EVENT PROMO
 Streamlit Web Application
-Version 4.0
+Version 5.0 - Improved Robustness
 """
 
 import streamlit as st
@@ -22,7 +22,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# FUNGSI-FUNGSI UTAMA
+# FUNGSI-FUNGSI UTAMA (IMPROVED VERSION)
 # ============================================================
 
 def clean_promo_name(nama_promo):
@@ -33,10 +33,8 @@ def clean_promo_name(nama_promo):
     if not nama_promo:
         return nama_promo
     
-    # Daftar bulan dalam bahasa Indonesia dan Inggris
     bulan = r'(?:JANUARI|FEBRUARI|MARET|APRIL|MEI|JUNI|JULI|AGUSTUS|SEPTEMBER|OKTOBER|NOVEMBER|DESEMBER|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)'
     
-    # Pattern untuk berbagai format tanggal
     date_patterns = [
         rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
         rf'\s*\d{{1,2}}\s+{bulan}\s*-\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
@@ -44,6 +42,8 @@ def clean_promo_name(nama_promo):
         rf'\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
         rf'\s+{bulan}\s*\d{{4}}$',
         rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s*{bulan}\s*\d{{4}}',
+        rf'\s*\d{{1,2}}/{bulan}/\d{{4}}',
+        rf'\s*\d{{1,2}}/\d{{1,2}}/\d{{4}}',
     ]
     
     result = nama_promo
@@ -56,47 +56,148 @@ def clean_promo_name(nama_promo):
     return result
 
 
-def extract_promo_info(header_text):
+def extract_promo_info_flexible(df):
     """
-    Mengekstrak informasi promo dari teks header di row 1
+    Mengekstrak informasi promo dengan cara yang lebih fleksibel
+    Mencari di beberapa row pertama untuk menemukan header promo
     """
-    if pd.isna(header_text):
-        return None, None
+    nama_promo = ""
+    periode_text = ""
+    mekanisme = ""
     
-    header_text = str(header_text)
+    # Cari di row 0-5 untuk header promo
+    for row_idx in range(min(6, len(df))):
+        for col_idx in range(min(3, len(df.columns))):
+            try:
+                cell_value = df.iloc[row_idx, col_idx]
+                if pd.isna(cell_value):
+                    continue
+                
+                cell_str = str(cell_value).strip()
+                
+                # Pattern 1: "XX - NAMA PROMO, PERIODE"
+                match = re.search(r'^\d+\s*[-–]\s*(.+?)(?:,\s*(\d{1,2}.*\d{4}))?$', cell_str)
+                if match and not nama_promo:
+                    nama_promo = clean_promo_name(match.group(1).strip())
+                    if match.group(2):
+                        periode_text = match.group(2).strip()
+                    continue
+                
+                # Pattern 2: Cek apakah ada pola tanggal di cell (untuk periode)
+                periode_match = re.search(r'(\d{1,2}\s*[-–]\s*\d{1,2}\s+\w+\s+\d{4})', cell_str, re.IGNORECASE)
+                if periode_match and not periode_text:
+                    periode_text = periode_match.group(1)
+                
+                # Pattern 3: Mekanisme biasanya di row berikutnya, mulai dengan angka atau berisi kata kunci
+                if row_idx > 0 and not mekanisme:
+                    mek_match = re.match(r'^\d+\.\s*(.+)$', cell_str)
+                    if mek_match:
+                        mekanisme = mek_match.group(1).strip()
+                    elif any(kw in cell_str.lower() for kw in ['beli', 'min', 'gratis', 'disc', 'potongan', 'bonus', 'cashback', 'free']):
+                        mekanisme = cell_str
+                        
+            except Exception:
+                continue
     
-    promo_match = re.search(r'\d+\s*-\s*([^,]+)', header_text)
-    nama_promo = promo_match.group(1).strip() if promo_match else ""
-    nama_promo = clean_promo_name(nama_promo)
+    # Fallback: Coba ekstrak dari row 1-2 dengan cara original
+    if not nama_promo:
+        try:
+            header_text = str(df.iloc[1, 0]) if len(df) > 1 and pd.notna(df.iloc[1, 0]) else ""
+            promo_match = re.search(r'\d+\s*[-–]\s*([^,]+)', header_text)
+            if promo_match:
+                nama_promo = clean_promo_name(promo_match.group(1).strip())
+                
+            # Extract periode dari akhir header
+            if not periode_text:
+                parts = header_text.rsplit(',', 1)
+                if len(parts) > 1:
+                    periode_text = parts[-1].strip()
+        except Exception:
+            pass
     
-    periode_match = re.search(r',\s*(\d{1,2}\s*(?:-\s*\d{1,2})?\s*\w+\s*\d{4}(?:\s*-\s*\d{1,2}\s*\w+\s*\d{4})?)\s*$', header_text)
-    if periode_match:
-        periode_text = periode_match.group(1).strip()
-    else:
-        parts = header_text.rsplit(',', 1)
-        periode_text = parts[-1].strip() if len(parts) > 1 else ""
+    if not mekanisme:
+        try:
+            mek_text = str(df.iloc[2, 0]) if len(df) > 2 and pd.notna(df.iloc[2, 0]) else ""
+            mek_text = re.sub(r'^\d+\.\s*', '', mek_text)
+            mekanisme = mek_text.strip()
+        except Exception:
+            pass
     
-    return nama_promo, periode_text
+    return nama_promo, periode_text, mekanisme
 
 
-def extract_mekanisme(mek_text):
+def find_header_row(df):
     """
-    Mengekstrak mekanisme promo dari row 2
+    Mencari row yang berisi header kolom data
+    Biasanya berisi 'No', 'Customer', 'Count', 'Claim', dll
     """
-    if pd.isna(mek_text):
-        return ""
-    mek_text = str(mek_text)
-    mek_text = re.sub(r'^\d+\.\s*', '', mek_text)
-    return mek_text.strip()
+    header_keywords = ['no', 'customer', 'count', 'claim', 'sales', 'amount', 'left', 'bonus', 'qty', 'total']
+    
+    for row_idx in range(min(10, len(df))):
+        try:
+            row_values = [str(v).lower().strip() for v in df.iloc[row_idx] if pd.notna(v)]
+            matches = sum(1 for kw in header_keywords if any(kw in val for val in row_values))
+            if matches >= 3:
+                return row_idx
+        except Exception:
+            continue
+    
+    return None
 
 
-def parse_periode(periode_text):
+def find_summary_row(df, header_row):
     """
-    Parse periode promo
+    Mencari row yang berisi data summary (total)
+    Biasanya row pertama setelah header yang memiliki nilai numerik
     """
-    if not periode_text:
-        return ""
-    return ' '.join(str(periode_text).strip().split())
+    if header_row is None:
+        # Fallback ke row 6 (0-indexed)
+        return 6 if len(df) > 6 else None
+    
+    # Cari row dengan 'All' atau 'Total' atau row pertama dengan data numerik
+    for row_idx in range(header_row + 1, min(header_row + 5, len(df))):
+        try:
+            row_values = df.iloc[row_idx]
+            first_val = str(row_values.iloc[0]).lower() if pd.notna(row_values.iloc[0]) else ""
+            
+            if 'all' in first_val or 'total' in first_val:
+                return row_idx
+            
+            # Cek apakah row ini memiliki beberapa nilai numerik
+            numeric_count = sum(1 for v in row_values if pd.notna(v) and isinstance(v, (int, float)))
+            if numeric_count >= 3:
+                return row_idx
+        except Exception:
+            continue
+    
+    return header_row + 1 if header_row is not None else 6
+
+
+def find_column_by_keywords(df, header_row, keywords):
+    """
+    Mencari indeks kolom berdasarkan keywords di header
+    """
+    if header_row is None or header_row >= len(df):
+        return None
+    
+    try:
+        # Cek di header_row dan header_row+1 (untuk merged headers)
+        for check_row in [header_row, header_row - 1]:
+            if check_row < 0 or check_row >= len(df):
+                continue
+            
+            for col_idx in range(len(df.columns)):
+                cell_value = df.iloc[check_row, col_idx]
+                if pd.isna(cell_value):
+                    continue
+                
+                cell_str = str(cell_value).lower().strip()
+                if any(kw in cell_str for kw in keywords):
+                    return col_idx
+    except Exception:
+        pass
+    
+    return None
 
 
 def safe_convert_number(value):
@@ -106,35 +207,18 @@ def safe_convert_number(value):
     if pd.isna(value):
         return None
     try:
+        if isinstance(value, str):
+            # Hapus karakter non-numerik kecuali titik dan minus
+            value = re.sub(r'[^\d.\-]', '', value.replace(',', ''))
         num = float(value)
-        return num if num != 0 or str(value) == '0' else None
-    except:
+        return num if not np.isnan(num) else None
+    except (ValueError, TypeError):
         return None
 
 
-def detect_column_type(df):
+def process_sheet_robust(df, sheet_name):
     """
-    Mendeteksi tipe kolom berdasarkan header
-    """
-    try:
-        row3 = df.iloc[3]
-        row4 = df.iloc[4]
-        
-        for col in range(len(row3)):
-            val3 = str(row3.iloc[col]) if pd.notna(row3.iloc[col]) else ""
-            val4 = str(row4.iloc[col]) if pd.notna(row4.iloc[col]) else ""
-            
-            if 'Sales' in val3 or 'Sales' in val4:
-                return 'sales_amount'
-        
-        return 'bonus_qty'
-    except:
-        return 'sales_amount'
-
-
-def process_sheet(df, sheet_name):
-    """
-    Memproses satu sheet dan mengekstrak data summary
+    Memproses satu sheet dengan deteksi yang lebih robust
     """
     result = {
         'Nama Promo': '',
@@ -148,48 +232,88 @@ def process_sheet(df, sheet_name):
     }
     
     try:
-        if len(df) < 7:
-            return None
+        if len(df) < 5:
+            return None, f"❌ Sheet '{sheet_name}': Terlalu sedikit baris"
         
-        header_text = df.iloc[1, 0]
-        mek_text = df.iloc[2, 0]
-        
-        nama_promo, periode_text = extract_promo_info(header_text)
-        mekanisme = extract_mekanisme(mek_text)
-        periode = parse_periode(periode_text)
+        # Extract info promo
+        nama_promo, periode_text, mekanisme = extract_promo_info_flexible(df)
         
         if not nama_promo:
-            return None
+            return None, f"❌ Sheet '{sheet_name}': Nama promo tidak ditemukan"
         
         result['Nama Promo'] = nama_promo
         result['Mekanisme Promo'] = mekanisme
-        result['Periode Promo'] = periode
+        result['Periode Promo'] = periode_text
         
-        summary_row = df.iloc[6]
+        # Cari header row dan summary row
+        header_row = find_header_row(df)
+        summary_row_idx = find_summary_row(df, header_row)
+        
+        if summary_row_idx is None or summary_row_idx >= len(df):
+            return None, f"❌ Sheet '{sheet_name}': Summary row tidak ditemukan"
+        
+        summary_row = df.iloc[summary_row_idx]
         num_cols = len(df.columns)
         
-        result['All Count'] = safe_convert_number(summary_row.iloc[3])
-        result['All Claim'] = safe_convert_number(summary_row.iloc[4])
+        # Metode 1: Cari kolom berdasarkan keyword di header
+        count_col = find_column_by_keywords(df, header_row, ['count', 'jumlah customer', 'total customer'])
+        claim_col = find_column_by_keywords(df, header_row, ['claim', 'klaim'])
+        sales_col = find_column_by_keywords(df, header_row, ['sales amount', 'sales amt', 'nilai penjualan', 'sales'])
+        amount_col = find_column_by_keywords(df, header_row, ['amount', 'bonus amount', 'nilai bonus', 'bonus amt'])
+        left_col = find_column_by_keywords(df, header_row, ['left', 'sisa', 'remaining'])
         
-        col_type = detect_column_type(df)
+        # Metode 2: Fallback ke posisi tetap jika tidak ditemukan
+        if count_col is not None:
+            result['All Count'] = safe_convert_number(summary_row.iloc[count_col])
+        elif num_cols > 3:
+            result['All Count'] = safe_convert_number(summary_row.iloc[3])
         
-        if col_type == 'sales_amount' and num_cols >= 17:
-            result['Sales Amount'] = safe_convert_number(summary_row.iloc[12])
-            result['Amount'] = safe_convert_number(summary_row.iloc[13])
-            result['Left'] = safe_convert_number(summary_row.iloc[16])
-        elif num_cols >= 16:
-            result['Sales Amount'] = None
-            result['Amount'] = safe_convert_number(summary_row.iloc[12])
-            result['Left'] = safe_convert_number(summary_row.iloc[15])
-        else:
-            result['Sales Amount'] = None
-            result['Amount'] = None
-            result['Left'] = None
+        if claim_col is not None:
+            result['All Claim'] = safe_convert_number(summary_row.iloc[claim_col])
+        elif num_cols > 4:
+            result['All Claim'] = safe_convert_number(summary_row.iloc[4])
         
-        return result
+        # Untuk Sales Amount, Amount, dan Left - coba berbagai pendekatan
+        if sales_col is not None:
+            result['Sales Amount'] = safe_convert_number(summary_row.iloc[sales_col])
+        
+        if amount_col is not None:
+            result['Amount'] = safe_convert_number(summary_row.iloc[amount_col])
+        
+        if left_col is not None:
+            result['Left'] = safe_convert_number(summary_row.iloc[left_col])
+        
+        # Fallback berdasarkan jumlah kolom (untuk kompatibilitas dengan format lama)
+        if result['Amount'] is None or result['Left'] is None:
+            # Deteksi apakah ada kolom Sales Amount
+            has_sales = sales_col is not None or any(
+                'sales' in str(v).lower() 
+                for v in df.iloc[header_row] if pd.notna(v)
+            ) if header_row is not None else False
+            
+            if has_sales and num_cols >= 17:
+                if result['Sales Amount'] is None:
+                    result['Sales Amount'] = safe_convert_number(summary_row.iloc[12])
+                if result['Amount'] is None:
+                    result['Amount'] = safe_convert_number(summary_row.iloc[13])
+                if result['Left'] is None:
+                    result['Left'] = safe_convert_number(summary_row.iloc[16])
+            elif num_cols >= 16:
+                if result['Amount'] is None:
+                    result['Amount'] = safe_convert_number(summary_row.iloc[12])
+                if result['Left'] is None:
+                    result['Left'] = safe_convert_number(summary_row.iloc[15])
+            elif num_cols >= 13:
+                # Untuk sheet dengan kolom lebih sedikit
+                if result['Amount'] is None:
+                    result['Amount'] = safe_convert_number(summary_row.iloc[-3])
+                if result['Left'] is None:
+                    result['Left'] = safe_convert_number(summary_row.iloc[-1])
+        
+        return result, f"✅ {nama_promo[:50]}"
         
     except Exception as e:
-        return None
+        return None, f"❌ Sheet '{sheet_name}': Error - {str(e)[:50]}"
 
 
 def generate_summary(uploaded_file):
@@ -200,41 +324,46 @@ def generate_summary(uploaded_file):
         xl = pd.ExcelFile(uploaded_file)
     except Exception as e:
         st.error(f"❌ Error membaca file: {str(e)}")
-        return None
+        return None, []
     
     sheet_names = xl.sheet_names
     results = []
     processed_sheets = []
+    skipped_sheets = []
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     for idx, sheet_name in enumerate(sheet_names):
         try:
-            df = pd.read_excel(xl, sheet_name=sheet_name)
+            df = pd.read_excel(xl, sheet_name=sheet_name, header=None)
             
-            if df.empty:
+            if df.empty or len(df) < 3:
+                skipped_sheets.append(f"⏭️ Sheet '{sheet_name}': Kosong atau terlalu sedikit data")
                 continue
             
-            result = process_sheet(df, sheet_name)
+            result, message = process_sheet_robust(df, sheet_name)
             
             if result and result['Nama Promo']:
                 result['No.'] = len(results) + 1
                 results.append(result)
-                processed_sheets.append(f"✅ {result['Nama Promo'][:50]}")
+                processed_sheets.append(f"✅ [{len(results):02d}] {result['Nama Promo'][:50]}")
+            else:
+                skipped_sheets.append(message)
             
         except Exception as e:
-            processed_sheets.append(f"❌ Sheet '{sheet_name}': Error")
+            skipped_sheets.append(f"❌ Sheet '{sheet_name}': Exception - {str(e)[:50]}")
         
-        # Update progress
         progress_bar.progress((idx + 1) / len(sheet_names))
         status_text.text(f"Memproses sheet {idx + 1} dari {len(sheet_names)}...")
     
     progress_bar.empty()
     status_text.empty()
     
+    all_logs = processed_sheets + skipped_sheets
+    
     if len(results) == 0:
-        return None, processed_sheets
+        return None, all_logs
     
     summary_df = pd.DataFrame(results)
     
@@ -245,7 +374,7 @@ def generate_summary(uploaded_file):
         if col not in summary_df.columns:
             summary_df[col] = None
     
-    return summary_df[cols], processed_sheets
+    return summary_df[cols], all_logs
 
 
 def format_preview_display(df):
@@ -258,7 +387,7 @@ def format_preview_display(df):
     for col in numeric_cols:
         if col in display_df.columns:
             display_df[col] = display_df[col].apply(
-                lambda x: '{:,.0f}'.format(x) if pd.notna(x) else ''
+                lambda x: '{:,.0f}'.format(x) if pd.notna(x) and x is not None else ''
             )
     
     return display_df
@@ -267,13 +396,11 @@ def format_preview_display(df):
 def save_summary_to_excel(df):
     """
     Menyimpan summary ke file Excel dengan format rapi
-    Returns: BytesIO object
     """
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"
     
-    # Styles
     header_font = Font(bold=True, color="FFFFFF", size=11)
     header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -286,7 +413,6 @@ def save_summary_to_excel(df):
     headers = ['No.', 'Nama Promo', 'Mekanisme Promo', 'Periode Promo', 
                'All Count', 'All Claim', 'Sales Amount', 'Amount', 'Left']
     
-    # Header row
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.font = header_font
@@ -294,7 +420,6 @@ def save_summary_to_excel(df):
         cell.alignment = header_alignment
         cell.border = thin_border
     
-    # Data rows
     for row_idx, row_data in df.iterrows():
         excel_row = row_idx + 2
         
@@ -304,14 +429,14 @@ def save_summary_to_excel(df):
             if header in ['All Count', 'All Claim', 'Sales Amount', 'Amount', 'Left']:
                 if pd.notna(value) and value is not None:
                     try:
-                        cell = ws.cell(row=excel_row, column=col_idx + 1, value=int(value))
+                        cell = ws.cell(row=excel_row, column=col_idx + 1, value=int(float(value)))
                         cell.number_format = '#,##0'
-                    except:
+                    except (ValueError, TypeError):
                         cell = ws.cell(row=excel_row, column=col_idx + 1, value='')
                 else:
                     cell = ws.cell(row=excel_row, column=col_idx + 1, value='')
             else:
-                cell = ws.cell(row=excel_row, column=col_idx + 1, value=value)
+                cell = ws.cell(row=excel_row, column=col_idx + 1, value=value if pd.notna(value) else '')
             
             cell.border = thin_border
             
@@ -325,7 +450,6 @@ def save_summary_to_excel(df):
             if row_idx % 2 == 1:
                 cell.fill = alt_fill
     
-    # Column widths
     widths = {'A': 5, 'B': 35, 'C': 50, 'D': 28, 'E': 12, 'F': 12, 'G': 18, 'H': 18, 'I': 18}
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
@@ -333,7 +457,6 @@ def save_summary_to_excel(df):
     ws.row_dimensions[1].height = 25
     ws.freeze_panes = 'A2'
     
-    # Save to BytesIO
     output = BytesIO()
     wb.save(output)
     output.seek(0)
@@ -345,11 +468,9 @@ def save_summary_to_excel(df):
 # TAMPILAN APLIKASI
 # ============================================================
 
-# Header
 st.title("🚀 Otomasi Summary Event Promo")
 st.markdown("---")
 
-# Sidebar info
 with st.sidebar:
     st.header("📌 Panduan Penggunaan")
     st.markdown("""
@@ -365,15 +486,24 @@ with st.sidebar:
     st.markdown("""
     - File Excel dengan multiple sheets
     - Setiap sheet berisi 1 promo
-    - Row 2: Header (nama & periode)
-    - Row 3: Mekanisme promo
-    - Row 7: Data summary (total)
+    - Row awal: Header (nama & periode)
+    - Row berikutnya: Mekanisme promo
+    - Ada baris dengan data summary/total
     """)
     
     st.markdown("---")
-    st.caption("Version 4.0 | 2026")
+    
+    st.header("🔄 Fitur v5.0")
+    st.markdown("""
+    - ✅ Deteksi kolom otomatis
+    - ✅ Fleksibel untuk berbagai format
+    - ✅ Error handling lebih baik
+    - ✅ Log proses detail
+    """)
+    
+    st.markdown("---")
+    st.caption("Version 5.0 | 2026")
 
-# Main content
 col1, col2 = st.columns([2, 1])
 
 with col1:
@@ -387,35 +517,31 @@ with col1:
 if uploaded_file is not None:
     st.success(f"✅ File berhasil diupload: **{uploaded_file.name}**")
     
-    # Process button
     if st.button("🚀 Proses File", type="primary", use_container_width=True):
         with st.spinner("Memproses file..."):
-            result = generate_summary(uploaded_file)
+            summary_df, process_logs = generate_summary(uploaded_file)
             
-            if result[0] is not None:
-                summary_df, processed_sheets = result
-                
-                # Store in session state
+            if summary_df is not None:
                 st.session_state['summary_df'] = summary_df
-                st.session_state['processed_sheets'] = processed_sheets
+                st.session_state['process_logs'] = process_logs
                 st.session_state['original_filename'] = uploaded_file.name
                 
-                st.success(f"✅ Berhasil memproses {len(summary_df)} promo!")
+                success_count = len(summary_df)
+                total_sheets = len(process_logs)
+                st.success(f"✅ Berhasil memproses {success_count} dari {total_sheets} sheet!")
             else:
+                st.session_state['process_logs'] = process_logs
                 st.error("❌ Gagal memproses file. Periksa format file input.")
 
-# Display results if available
 if 'summary_df' in st.session_state:
     summary_df = st.session_state['summary_df']
     
     st.markdown("---")
     st.header("📊 Preview Hasil")
     
-    # Display formatted preview
     display_df = format_preview_display(summary_df)
     st.dataframe(display_df, use_container_width=True, hide_index=True)
     
-    # Download button
     st.markdown("---")
     st.header("📥 Download Hasil")
     
@@ -432,12 +558,23 @@ if 'summary_df' in st.session_state:
         type="primary",
         use_container_width=True
     )
-    
-    # Show processing details
-    with st.expander("📋 Detail Proses"):
-        for item in st.session_state.get('processed_sheets', []):
-            st.text(item)
 
-# Footer
+# Selalu tampilkan detail proses jika ada
+if 'process_logs' in st.session_state:
+    with st.expander("📋 Detail Proses", expanded=False):
+        logs = st.session_state.get('process_logs', [])
+        success_logs = [l for l in logs if l.startswith('✅')]
+        failed_logs = [l for l in logs if not l.startswith('✅')]
+        
+        if success_logs:
+            st.markdown("**Berhasil diproses:**")
+            for item in success_logs:
+                st.text(item)
+        
+        if failed_logs:
+            st.markdown("**Dilewati/Error:**")
+            for item in failed_logs:
+                st.text(item)
+
 st.markdown("---")
-st.caption("Made with ❤️ using Streamlit | Otomasi Summary Event Promo v4.0")
+st.caption("Made with "Seluruh Kemampuan" using Streamlit | Otomasi Summary Event Promo")
