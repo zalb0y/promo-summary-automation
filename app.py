@@ -1,7 +1,7 @@
 """
 🚀 OTOMASI SUMMARY EVENT PROMO
 Streamlit Web Application
-Version 5.0 - Improved Robustness
+Version - Improved Robustness
 """
 
 import streamlit as st
