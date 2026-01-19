@@ -55,6 +55,30 @@ def clean_promo_name(nama_promo):
     
     return result
 
+def extract_nama_promo(text):
+    if not text or not isinstance(text, str):
+        return ""
+
+    s = text.upper().strip()
+
+    # Hapus metadata (Last Claim, dll)
+    s = re.sub(r'\(.*?\)', '', s)
+
+    # Ambil teks setelah "NN -"
+    m = re.search(r'\b\d+\s*[-–]\s*(.+)', s)
+    if not m:
+        return ""
+
+    s = m.group(1)
+
+    # Bersihkan tanggal di belakang pakai fungsi Anda
+    s = clean_promo_name(s)
+
+    # Rapikan
+    s = re.sub(r'[,–\-]+$', '', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+
+    return s
 
 def extract_promo_info_flexible(df):
     """
@@ -78,7 +102,7 @@ def extract_promo_info_flexible(df):
                 # Pattern 1: "XX - NAMA PROMO, PERIODE"
                 match = re.search(r'(?:.*?\s)?\d+\s*[-–]\s*(.+)',cell_str)
                 if match and not nama_promo:
-                    nama_promo = clean_promo_name(match.group(1).strip())
+                    nama_promo = extract_nama_promo(cell_str)
                     if match.group(2):
                         periode_text = match.group(2).strip()
                     continue
