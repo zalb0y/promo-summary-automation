@@ -36,16 +36,13 @@ def clean_promo_name(nama_promo):
     bulan = r'(?:JANUARI|FEBRUARI|MARET|APRIL|MEI|JUNI|JULI|AGUSTUS|SEPTEMBER|OKTOBER|NOVEMBER|DESEMBER|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)'
     
     date_patterns = [
-        rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
-        rf'\s*\d{{1,2}}\s+{bulan}\s*-\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
-        rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
-        rf'\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
-        rf'\s+{bulan}\s*\d{{4}}$',
-        rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s*{bulan}\s*\d{{4}}',
-        rf'\s*\d{{1,2}}/{bulan}/\d{{4}}',
-        rf'\s*\d{{1,2}}/\d{{1,2}}/\d{{4}}',
+    rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s*{bulan}\s*\d{{4}}',
+    rf'\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
+    rf'\s+{bulan}\s*\d{{4}}$',
+    rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s*{bulan}\b',
+    rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\b',
     ]
-    
+
     result = nama_promo
     for pattern in date_patterns:
         result = re.sub(pattern, '', result, flags=re.IGNORECASE)
@@ -95,7 +92,7 @@ def extract_promo_info_flexible(df):
 
             if not nama_promo:
                 extracted = extract_nama_promo(cell_str)
-                if extracted and extracted.startswith("PROMO"):
+                if extracted:
                     nama_promo = extracted
                     continue
 
@@ -112,7 +109,7 @@ def extract_promo_info_flexible(df):
                     'beli', 'min', 'gratis', 'disc', 'potongan',
                     'bonus', 'cashback', 'free'
                 ]):
-                    mekanisme = cell_str
+                    mekanisme = re.sub(r'^\d+\.?\s*', '', cell_str).strip()
 
     if not mekanisme and len(df) > 2:
         mekanisme = str(df.iloc[2, 0]).strip()
