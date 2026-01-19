@@ -36,13 +36,16 @@ def clean_promo_name(nama_promo):
     bulan = r'(?:JANUARI|FEBRUARI|MARET|APRIL|MEI|JUNI|JULI|AGUSTUS|SEPTEMBER|OKTOBER|NOVEMBER|DESEMBER|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)'
     
     date_patterns = [
-    rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s*{bulan}\s*\d{{4}}',
-    rf'\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
-    rf'\s+{bulan}\s*\d{{4}}$',
-    rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s*{bulan}\b',
-    rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\b',
+        rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
+        rf'\s*\d{{1,2}}\s+{bulan}\s*-\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
+        rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
+        rf'\s*\d{{1,2}}\s+{bulan}\s*\d{{4}}',
+        rf'\s+{bulan}\s*\d{{4}}$',
+        rf'\s*\d{{1,2}}\s*-\s*\d{{1,2}}\s*{bulan}\s*\d{{4}}',
+        rf'\s*\d{{1,2}}/{bulan}/\d{{4}}',
+        rf'\s*\d{{1,2}}/\d{{1,2}}/\d{{4}}',
     ]
-
+    
     result = nama_promo
     for pattern in date_patterns:
         result = re.sub(pattern, '', result, flags=re.IGNORECASE)
@@ -51,36 +54,27 @@ def clean_promo_name(nama_promo):
     result = re.sub(r'[\s-]+$', '', result).strip()
     
     return result
-    
+
 def extract_nama_promo(text):
     if not text or not isinstance(text, str):
         return ""
 
     s = text.upper().strip()
 
-    # Tolak timestamp Excel
-    if re.match(r'^[A-Z]{3}-\d{4}\s+\d{2}:\d{2}', s):
-        return ""
-
-    # Hapus metadata
+    # Hapus metadata (Last Claim, dll)
     s = re.sub(r'\(.*?\)', '', s)
 
-    # Ambil setelah "NN -" jika ada
+    # Ambil teks setelah "NN -"
     m = re.search(r'\b\d+\s*[-–]\s*(.+)', s)
-    if m:
-        s = m.group(1)
-
-    # Validasi kata kunci promo
-    promo_keywords = [
-        'PROMO', 'FAIR', 'BELI', 'BUY', 'FREE', 'GRATIS',
-        'DISKON', 'DISC', 'CASHBACK', 'SPECIAL', 'SPESIAL'
-    ]
-    if not any(k in s for k in promo_keywords):
+    if not m:
         return ""
 
-    # Bersihkan tanggal
+    s = m.group(1)
+
+    # Bersihkan tanggal di belakang pakai fungsi Anda
     s = clean_promo_name(s)
 
+    # Rapikan
     s = re.sub(r'[,–\-]+$', '', s)
     s = re.sub(r'\s+', ' ', s).strip()
 
@@ -101,7 +95,7 @@ def extract_promo_info_flexible(df):
 
             if not nama_promo:
                 extracted = extract_nama_promo(cell_str)
-                if extracted:
+                if extracted and extracted.startswith("PROMO"):
                     nama_promo = extracted
                     continue
 
@@ -118,13 +112,13 @@ def extract_promo_info_flexible(df):
                     'beli', 'min', 'gratis', 'disc', 'potongan',
                     'bonus', 'cashback', 'free'
                 ]):
-                    mekanisme = re.sub(r'^\d+\.?\s*', '', cell_str).strip()
+                    mekanisme = cell_str
 
     if not mekanisme and len(df) > 2:
         mekanisme = str(df.iloc[2, 0]).strip()
 
     return nama_promo, periode_text, mekanisme
-
+    
 def find_header_row(df):
     """
     Mencari row yang berisi header kolom data
