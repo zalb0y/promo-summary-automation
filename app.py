@@ -51,27 +51,36 @@ def clean_promo_name(nama_promo):
     result = re.sub(r'[\s-]+$', '', result).strip()
     
     return result
-
+    
 def extract_nama_promo(text):
     if not text or not isinstance(text, str):
         return ""
 
     s = text.upper().strip()
 
-    # Hapus metadata (Last Claim, dll)
-    s = re.sub(r'\(.*?\)', '', s)
-
-    # Ambil teks setelah "NN -"
-    m = re.search(r'\b\d+\s*[-–]\s*(.+)', s)
-    if not m:
+    # Tolak timestamp Excel
+    if re.match(r'^[A-Z]{3}-\d{4}\s+\d{2}:\d{2}', s):
         return ""
 
-    s = m.group(1)
+    # Hapus metadata
+    s = re.sub(r'\(.*?\)', '', s)
 
-    # Bersihkan tanggal di belakang pakai fungsi Anda
+    # Ambil setelah "NN -" jika ada
+    m = re.search(r'\b\d+\s*[-–]\s*(.+)', s)
+    if m:
+        s = m.group(1)
+
+    # Validasi kata kunci promo
+    promo_keywords = [
+        'PROMO', 'FAIR', 'BELI', 'BUY', 'FREE', 'GRATIS',
+        'DISKON', 'DISC', 'CASHBACK', 'SPECIAL', 'SPESIAL'
+    ]
+    if not any(k in s for k in promo_keywords):
+        return ""
+
+    # Bersihkan tanggal
     s = clean_promo_name(s)
 
-    # Rapikan
     s = re.sub(r'[,–\-]+$', '', s)
     s = re.sub(r'\s+', ' ', s).strip()
 
