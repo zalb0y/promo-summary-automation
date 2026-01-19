@@ -81,74 +81,43 @@ def extract_nama_promo(text):
     return s
 
 def extract_promo_info_flexible(df):
-    """
-    Mengekstrak informasi promo dengan cara yang lebih fleksibel
-    Mencari di beberapa row pertama untuk menemukan header promo
-    """
     nama_promo = ""
     periode_text = ""
     mekanisme = ""
-    
-    # Cari di row 0-5 untuk header promo
+
     for row_idx in range(min(6, len(df))):
         for col_idx in range(min(3, len(df.columns))):
-            try:
-                cell_value = df.iloc[row_idx, col_idx]
-                if pd.isna(cell_value):
-                    continue
-                
-                cell_str = str(cell_value).strip()
-                
-                # Pattern 1: "XX - NAMA PROMO, PERIODE"
-                match = re.search(r'(?:.*?\s)?\d+\s*[-–]\s*(.+)',cell_str)
-                if match and not nama_promo:
-                    nama_promo = extract_nama_promo(cell_str)
-                    if match.group(2):
-                        periode_text = match.group(2).strip()
-                    continue
-                
-                # Pattern 2: Cek apakah ada pola tanggal di cell (untuk periode)
-                periode_match = re.search(r'(\d{1,2}\s*[-–]\s*\d{1,2}\s+\w+\s+\d{4})', cell_str, re.IGNORECASE)
-                if periode_match and not periode_text:
-                    periode_text = periode_match.group(1)
-                
-                # Pattern 3: Mekanisme biasanya di row berikutnya, mulai dengan angka atau berisi kata kunci
-                if row_idx > 0 and not mekanisme:
-                    mek_match = re.match(r'^\d+\.\s*(.+)$', cell_str)
-                    if mek_match:
-                        mekanisme = mek_match.group(1).strip()
-                    elif any(kw in cell_str.lower() for kw in ['beli', 'min', 'gratis', 'disc', 'potongan', 'bonus', 'cashback', 'free']):
-                        mekanisme = cell_str
-                        
-            except Exception:
+            cell_value = df.iloc[row_idx, col_idx]
+            if pd.isna(cell_value):
                 continue
-    
-    # Fallback: Coba ekstrak dari row 1-2 dengan cara original
-    if not nama_promo:
-        try:
-            header_text = str(df.iloc[1, 0]) if len(df) > 1 and pd.notna(df.iloc[1, 0]) else ""
-            promo_match = re.search(r'\d+\s*[-–]\s*([^,]+)', header_text)
-            if promo_match:
-                nama_promo = clean_promo_name(promo_match.group(1).strip())
-                
-            # Extract periode dari akhir header
-            if not periode_text:
-                parts = header_text.rsplit(',', 1)
-                if len(parts) > 1:
-                    periode_text = parts[-1].strip()
-        except Exception:
-            pass
-    
-    if not mekanisme:
-        try:
-            mek_text = str(df.iloc[2, 0]) if len(df) > 2 and pd.notna(df.iloc[2, 0]) else ""
-            mek_text = re.sub(r'^\d+\.\s*', '', mek_text)
-            mekanisme = mek_text.strip()
-        except Exception:
-            pass
-    
-    return nama_promo, periode_text, mekanisme
 
+            cell_str = str(cell_value).strip()
+
+            if not nama_promo:
+                extracted = extract_nama_promo(cell_str)
+                if extracted and extracted.startswith("PROMO"):
+                    nama_promo = extracted
+                    continue
+
+            if not periode_text:
+                periode_match = re.search(
+                    r'(\d{1,2}\s*[-–]\s*\d{1,2}\s+\w+\s+\d{4})',
+                    cell_str, re.IGNORECASE
+                )
+                if periode_match:
+                    periode_text = periode_match.group(1)
+
+            if row_idx > 0 and not mekanisme:
+                if any(kw in cell_str.lower() for kw in [
+                    'beli', 'min', 'gratis', 'disc', 'potongan',
+                    'bonus', 'cashback', 'free'
+                ]):
+                    mekanisme = cell_str
+
+    if not mekanisme and len(df) > 2:
+        mekanisme = str(df.iloc[2, 0]).strip()
+
+    return nama_promo, periode_text, mekanisme
 
 def find_header_row(df):
     """
