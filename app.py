@@ -577,4 +577,4 @@ if 'process_logs' in st.session_state:
                 st.text(item)
 
 st.markdown("---")
-st.caption("Made with "Seluruh Kemampuan" using Streamlit | Otomasi Summary Event Promo")
+st.caption("Otomasi Summary Event Promo")
