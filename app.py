@@ -76,7 +76,7 @@ def extract_promo_info_flexible(df):
                 cell_str = str(cell_value).strip()
                 
                 # Pattern 1: "XX - NAMA PROMO, PERIODE"
-                match = re.search(r'^\d+\s*[-–]\s*(.+?)(?:,\s*(\d{1,2}.*\d{4}))?$', cell_str)
+                match = re.search(r'(?:.*?\s)?\d+\s*[-–]\s*(.+)',cell_str)
                 if match and not nama_promo:
                     nama_promo = clean_promo_name(match.group(1).strip())
                     if match.group(2):
@@ -508,67 +508,30 @@ col1, col2 = st.columns([2, 1])
 
 with col1:
     st.header("📤 Upload File Excel")
-    # PERUBAHAN 1: Menambahkan accept_multiple_files=True
-    uploaded_files = st.file_uploader(
+    uploaded_file = st.file_uploader(
         "Pilih file Excel mentah",
         type=['xlsx', 'xls'],
-        accept_multiple_files=True,
         help="Upload file Excel dengan format yang sesuai"
     )
 
-# PERUBAHAN 2: Logika untuk memproses list file (bukan single file)
-if uploaded_files:
-    st.success(f"✅ {len(uploaded_files)} File berhasil diupload")
+if uploaded_file is not None:
+    st.success(f"✅ File berhasil diupload: **{uploaded_file.name}**")
     
-    if st.button("🚀 Proses Semua File", type="primary", use_container_width=True):
-        
-        all_summaries = []
-        all_logs = []
-        
-        # Progress bar utama untuk jumlah file
-        main_progress = st.progress(0)
-        status_text = st.empty()
-        
-        # Loop untuk memproses setiap file satu per satu
-        for idx, uploaded_file in enumerate(uploaded_files):
-            status_text.text(f"Sedang memproses file {idx + 1}/{len(uploaded_files)}: {uploaded_file.name}")
-            
-            # Panggil fungsi generate_summary untuk file saat ini
-            # generate_summary sudah ada di kode atas Anda, tidak perlu diubah
-            summary_df, logs = generate_summary(uploaded_file)
+    if st.button("🚀 Proses File", type="primary", use_container_width=True):
+        with st.spinner("Memproses file..."):
+            summary_df, process_logs = generate_summary(uploaded_file)
             
             if summary_df is not None:
-                # Tambahkan kolom nama file sumber agar tahu data ini dari file mana
-                summary_df.insert(0, 'Source File', uploaded_file.name)
-                all_summaries.append(summary_df)
-                all_logs.extend(logs)
+                st.session_state['summary_df'] = summary_df
+                st.session_state['process_logs'] = process_logs
+                st.session_state['original_filename'] = uploaded_file.name
+                
+                success_count = len(summary_df)
+                total_sheets = len(process_logs)
+                st.success(f"✅ Berhasil memproses {success_count} dari {total_sheets} sheet!")
             else:
-                all_logs.append(f"❌ Gagal memproses file: {uploaded_file.name}")
-            
-            # Update progress bar
-            main_progress.progress((idx + 1) / len(uploaded_files))
-            
-        main_progress.empty()
-        status_text.empty()
-
-        # Gabungkan semua hasil dataframe menjadi satu
-        if all_summaries:
-            final_df = pd.concat(all_summaries, ignore_index=True)
-            
-            # Reset nomor urut pada kolom 'No.'
-            if 'No.' in final_df.columns:
-                final_df['No.'] = range(1, len(final_df) + 1)
-            
-            # Simpan ke session state
-            st.session_state['summary_df'] = final_df
-            st.session_state['process_logs'] = all_logs
-            st.session_state['original_filename'] = "Gabungan_Summary"
-            
-            total_rows = len(final_df)
-            st.success(f"✅ Selesai! Total {total_rows} data berhasil diekstrak dari {len(uploaded_files)} file.")
-        else:
-            st.session_state['process_logs'] = all_logs
-            st.error("❌ Tidak ada data yang berhasil diekstrak.")
+                st.session_state['process_logs'] = process_logs
+                st.error("❌ Gagal memproses file. Periksa format file input.")
 
 if 'summary_df' in st.session_state:
     summary_df = st.session_state['summary_df']
